@@ -16,8 +16,10 @@ class FocusAccessibilityService : AccessibilityService() {
     companion object {
         const val PKG_INSTAGRAM = "com.instagram.android"
         const val PKG_YOUTUBE = "com.google.android.youtube"
+        const val PKG_TIKTOK_GLOBAL = "com.zhiliaoapp.musically"
+        const val PKG_TIKTOK_ASIA = "com.ss.android.ugc.trill"
+        const val PKG_TIKTOK_PRO = "com.ss.android.ugc.tiktok.pro"
         
-        // Cooldown auf 1.5s erhöht, damit IG Zeit hat, die UI nach dem "Zurück" zu aktualisieren
         private const val BLOCK_ACTION_COOLDOWN_MS = 1500L 
         private const val SCAN_DEBOUNCE_MS = 180L
         private const val DM_CONTEXT_EXPIRY_MS = 15_000L
@@ -46,43 +48,34 @@ class FocusAccessibilityService : AccessibilityService() {
         }
     }
 
-override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-    if (event == null) return
-    val packageName = event.packageName?.toString() ?: return
-    val now = System.currentTimeMillis()
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+        val packageName = event.packageName?.toString() ?: return
+        val now = System.currentTimeMillis()
+        
+        if (currentPrefs.pauseUntilTimestamp > now) return
+        
+        val isTikTok = packageName == PKG_TIKTOK_GLOBAL || packageName == PKG_TIKTOK_ASIA || packageName == PKG_TIKTOK_PRO
+        
+        if (packageName == PKG_INSTAGRAM && event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && igContextState == IgNavigationContext.ALLOWED_SINGLE_DM_REEL) {
+            handleInstagramDmReelScroll(event, now)
+            return
+        }
+        
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            if (now - lastTreeScanTimestamp < SCAN_DEBOUNCE_MS) return
+        }
+        lastTreeScanTimestamp = now
+        val rootNode = rootInActiveWindow ?: return
 
-    if (currentPrefs.pauseUntilTimestamp > now) return
-
-    // 1. TikTok Pro / Mod Erkennung (fängt alles mit "tiktok", "aweme", "zhiliao" etc. ab)
-    val isTikTok = packageName.contains("tiktok", true) || 
-                   packageName.contains("zhiliao", true) || 
-                   packageName.contains("aweme", true) || 
-                   packageName.contains("trill", true)
-
-    // 2. AKKU-SCHUTZ: Ignoriere alle irrelevanten Apps (WhatsApp, Browser etc.) sofort
-    val isTargetApp = packageName == PKG_INSTAGRAM || packageName == PKG_YOUTUBE || isTikTok
-    if (!isTargetApp) return
-
-    // 3. Spezielle Instagram-Scroll-Regel für DMs
-    if (packageName == PKG_INSTAGRAM && event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && igContextState == IgNavigationContext.ALLOWED_SINGLE_DM_REEL) {
-        handleInstagramDmReelScroll(event, now)
-        return
+        try {
+            if (packageName == PKG_INSTAGRAM) inspectInstagram(rootNode, now)
+            else if (packageName == PKG_YOUTUBE) inspectYouTube(rootNode, now)
+            else if (isTikTok) inspectTikTok(rootNode, event, packageName)
+        } catch (e: Exception) { 
+            Log.e("FocusLite", "Error scanning UI", e) 
+        }
     }
-
-    if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-        if (now - lastTreeScanTimestamp < SCAN_DEBOUNCE_MS) return
-    }
-    lastTreeScanTimestamp = now
-    val rootNode = rootInActiveWindow ?: return
-
-    try {
-        if (packageName == PKG_INSTAGRAM) inspectInstagram(rootNode, now)
-        else if (packageName == PKG_YOUTUBE) inspectYouTube(rootNode, now)
-        else if (isTikTok) inspectTikTok(rootNode, event, packageName)
-    } catch (e: Exception) { 
-        Log.e("FocusLite", "Error scanning UI", e) 
-    }
-}
 
     private fun inspectInstagram(rootNode: AccessibilityNodeInfo, now: Long) {
         val snapshot = scanInstagramTree(rootNode)
@@ -173,8 +166,6 @@ override fun onAccessibilityEvent(event: AccessibilityEvent?) {
             val text = node.text?.toString().orEmpty()
             val className = node.className?.toString().orEmpty()
             
-            // DER ENTSCHEIDENDE FIX FÜR DIE ENDLOSSCHLEIFE:
-            // Verhindert, dass unsichtbar vorgeladene Hintergrund-Fragments reagieren
             if (node.isVisibleToUser) {
                 if (viewId.contains("row_thread_composer", true) || viewId.contains("direct_thread", true) || viewId.contains("thread_list", true) || viewId.contains("direct_inbox", true) || contentDesc.equals("Nachricht senden", true) || contentDesc.equals("Message…", true) || text.equals("Nachricht…", true)) {
                     snapshot.isInDirectMessages = true
@@ -239,38 +230,49 @@ override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     private fun inspectTikTok(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent, packageName: String) {
         if (!currentPrefs.ttBlockForYou) return
         
+        var isAllowedScreenActive = false
+        var isForYouTabSelected = false
+        
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(rootNode)
         var nodesVisited = 0
-        var isAllowedScreenActive = false
         
-        while (queue.isNotEmpty() && nodesVisited < 300) {
+        while (queue.isNotEmpty() && nodesVisited < 400) {
             val node = queue.removeFirst()
             nodesVisited++
             
             val contentDesc = node.contentDescription?.toString().orEmpty()
             val text = node.text?.toString().orEmpty()
             
-            if (node.isVisibleToUser && node.isSelected && (
-                text.equals("Posteingang", true) || text.equals("Inbox", true) || 
-                text.equals("Profil", true) || text.equals("Profile", true) || 
-                contentDesc.equals("Posteingang", true) || contentDesc.equals("Inbox", true) || 
-                contentDesc.equals("Profil", true) || contentDesc.equals("Profile", true)
-            )) {
-                isAllowedScreenActive = true
+            if (node.isVisibleToUser) {
+                if (text.equals("Posteingang", true) || text.equals("Inbox", true) || 
+                    text.equals("Profil", true) || text.equals("Profile", true) || 
+                    contentDesc.equals("Posteingang", true) || contentDesc.equals("Inbox", true) || 
+                    contentDesc.equals("Profil", true) || contentDesc.equals("Profile", true) ||
+                    text.contains("Nachricht", true)
+                ) {
+                    isAllowedScreenActive = true
+                }
+                
+                if (node.isSelected && (text.equals("Für dich", true) || text.equals("For You", true))) {
+                    isForYouTabSelected = true
+                }
             }
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
         
-        // TIKTOK PRO SCROLL-HEURISTIK: 
-        // Sobald auf dem Container (ViewPager) gewischt wird und du nicht im Posteingang bist, feuert der Blocker.
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             val scrollClass = event.className?.toString().orEmpty()
-            if (scrollClass.contains("ViewPager", true)) {
+            if (scrollClass.contains("ViewPager", true) || scrollClass.contains("RecyclerView", true)) {
                 if (!isAllowedScreenActive) {
-                    triggerBlockAction(packageName, "TikTok Scroll", "Scrollen im Feed blockiert!")
+                    triggerBlockAction(packageName, "TikTok Feed Scroll", "Scrollen im TikTok-Feed blockiert!")
+                    return
                 }
             }
+        }
+        
+        if (isForYouTabSelected && !isAllowedScreenActive) {
+            triggerBlockAction(packageName, "TikTok For-You Tab", "TikTok Feed geschlossen!")
         }
     }
 

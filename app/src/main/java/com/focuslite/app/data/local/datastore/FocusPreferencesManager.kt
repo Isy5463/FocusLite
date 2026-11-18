@@ -5,25 +5,4 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 private val Context.dataStore by preferencesDataStore("focus_lite_prefs")
-class FocusPreferencesManager(private val context: Context) {
-    companion object {
-        val KEY_IG_BLOCK_REELS = booleanPreferencesKey("ig_block_reels")
-        val KEY_IG_BLOCK_EXPLORE = booleanPreferencesKey("ig_block_explore")
-        val KEY_IG_ALLOW_SINGLE_DM_REEL = booleanPreferencesKey("ig_allow_single_dm_reel")
-        val KEY_YT_BLOCK_SHORTS = booleanPreferencesKey("yt_block_shorts")
-        val KEY_TT_BLOCK_FOR_YOU = booleanPreferencesKey("tt_block_for_you")
-        val KEY_TT_ALLOW_INBOX = booleanPreferencesKey("tt_allow_inbox")
-        val KEY_STRICT_FRICTION_MODE = booleanPreferencesKey("strict_friction_mode")
-        val KEY_PAUSE_UNTIL = longPreferencesKey("pause_until_timestamp")
-    }
-    val preferencesFlow: Flow<FocusPreferences> = context.dataStore.data.map { prefs ->
-        FocusPreferences(
-            igBlockReels = prefs[KEY_IG_BLOCK_REELS] ?: true, igBlockExplore = prefs[KEY_IG_BLOCK_EXPLORE] ?: true, igAllowSingleReelFromDm = prefs[KEY_IG_ALLOW_SINGLE_DM_REEL] ?: true,
-            ytBlockShorts = prefs[KEY_YT_BLOCK_SHORTS] ?: true,
-            ttBlockForYou = prefs[KEY_TT_BLOCK_FOR_YOU] ?: true, ttAllowInbox = prefs[KEY_TT_ALLOW_INBOX] ?: true,
-            strictFrictionMode = prefs[KEY_STRICT_FRICTION_MODE] ?: true, pauseUntilTimestamp = prefs[KEY_PAUSE_UNTIL] ?: 0L
-        )
-    }
-    suspend fun updateBoolean(key: Preferences.Key<Boolean>, value: Boolean) { context.dataStore.edit { it[key] = value } }
-    suspend fun setPauseUntil(timestamp: Long) { context.dataStore.edit { it[KEY_PAUSE_UNTIL] = timestamp } }
-}
+class FocusPreferencesManager(private val context: Context) { companion object { val KEY_IG_BLOCK_REELS = booleanPreferencesKey("ig_block_reels"); val KEY_IG_BLOCK_EXPLORE = booleanPreferencesKey("ig_block_explore"); val KEY_IG_ALLOW_SINGLE_DM_REEL = booleanPreferencesKey("ig_allow_single_dm_reel"); val KEY_YT_BLOCK_SHORTS = booleanPreferencesKey("yt_block_shorts"); val KEY_TT_BLOCK_FOR_YOU = booleanPreferencesKey("tt_block_for_you"); val KEY_TT_ALLOW_INBOX = booleanPreferencesKey("tt_allow_inbox"); val KEY_STRICT_FRICTION_MODE = booleanPreferencesKey("strict_friction_mode"); val KEY_PAUSE_UNTIL = longPreferencesKey("pause_until_timestamp") } val preferencesFlow: Flow<FocusPreferences> = context.dataStore.data.map { prefs -> FocusPreferences(igBlockReels = prefs[KEY_IG_BLOCK_REELS] ?: true, igBlockExplore = prefs[KEY_IG_BLOCK_EXPLORE] ?: true, igAllowSingleReelFromDm = prefs[KEY_IG_ALLOW_SINGLE_DM_REEL] ?: true, ytBlockShorts = prefs[KEY_YT_BLOCK_SHORTS] ?: true, ttBlockForYou = prefs[KEY_TT_BLOCK_FOR_YOU] ?: true, ttAllowInbox = prefs[KEY_TT_ALLOW_INBOX] ?: true, strictFrictionMode = prefs[KEY_STRICT_FRICTION_MODE] ?: true, pauseUntilTimestamp = prefs[KEY_PAUSE_UNTIL] ?: 0L) } suspend fun updateBoolean(key: Preferences.Key<Boolean>, value: Boolean) { context.dataStore.edit { it[key] = value } } suspend fun setPauseUntil(timestamp: Long) { context.dataStore.edit { it[KEY_PAUSE_UNTIL] = timestamp } } }
