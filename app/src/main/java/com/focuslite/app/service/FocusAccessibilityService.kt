@@ -1,5 +1,4 @@
 package com.focuslite.app.service
-
 import android.accessibilityservice.AccessibilityService
 import android.os.*
 import android.util.Log
@@ -19,21 +18,16 @@ class FocusAccessibilityService : AccessibilityService() {
         const val PKG_TIKTOK_GLOBAL = "com.zhiliaoapp.musically"
         const val PKG_TIKTOK_ASIA = "com.ss.android.ugc.trill"
         const val PKG_TIKTOK_PRO = "com.ss.android.ugc.tiktok.pro"
-        
         private const val BLOCK_ACTION_COOLDOWN_MS = 1500L 
         private const val SCAN_DEBOUNCE_MS = 180L
         private const val DM_CONTEXT_EXPIRY_MS = 15_000L
-        
-        @Volatile var isServiceRunning: Boolean = false
-            private set
+        @Volatile var isServiceRunning: Boolean = false; private set
     }
-
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var currentPrefs = FocusPreferences()
     private var lastBlockTimestamp: Long = 0L
     private var lastTreeScanTimestamp: Long = 0L
-
     private enum class IgNavigationContext { UNKNOWN, DIRECT_THREAD_OR_INBOX, ALLOWED_SINGLE_DM_REEL, OTHER_SCREEN }
     private var igContextState = IgNavigationContext.UNKNOWN
     private var lastDmContextSeenTimestamp: Long = 0L
@@ -41,18 +35,14 @@ class FocusAccessibilityService : AccessibilityService() {
     private var initialReelSignature: String? = null
 
     override fun onServiceConnected() {
-        super.onServiceConnected()
-        isServiceRunning = true
-        (applicationContext as? FocusLiteApplication)?.let { app -> 
-            serviceScope.launch { app.repository.preferencesFlow.collectLatest { currentPrefs = it } } 
-        }
+        super.onServiceConnected(); isServiceRunning = true
+        (applicationContext as? FocusLiteApplication)?.let { app -> serviceScope.launch { app.repository.preferencesFlow.collectLatest { currentPrefs = it } } }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
         val now = System.currentTimeMillis()
-        
         if (currentPrefs.pauseUntilTimestamp > now) return
         
         val isTikTok = packageName == PKG_TIKTOK_GLOBAL || packageName == PKG_TIKTOK_ASIA || packageName == PKG_TIKTOK_PRO
@@ -72,33 +62,27 @@ class FocusAccessibilityService : AccessibilityService() {
             if (packageName == PKG_INSTAGRAM) inspectInstagram(rootNode, now)
             else if (packageName == PKG_YOUTUBE) inspectYouTube(rootNode, now)
             else if (isTikTok) inspectTikTok(rootNode, event, packageName)
-        } catch (e: Exception) { 
-            Log.e("FocusLite", "Error scanning UI", e) 
-        }
+        } catch (e: Exception) { Log.e("FocusLite", "Error scanning UI", e) }
     }
 
     private fun inspectInstagram(rootNode: AccessibilityNodeInfo, now: Long) {
         val snapshot = scanInstagramTree(rootNode)
-        
         if (snapshot.isInDirectMessages && !snapshot.isReelsViewerActive) {
             igContextState = IgNavigationContext.DIRECT_THREAD_OR_INBOX
             lastDmContextSeenTimestamp = now
             initialReelSignature = null
             return
         }
-        
         if (currentPrefs.igBlockExplore && snapshot.isExploreGridActive && !snapshot.isSearchInputFocused) {
             triggerBlockAction(PKG_INSTAGRAM, "Instagram Explore", "Explore-Feed blockiert!")
             return
         }
-        
         if (currentPrefs.igBlockReels && snapshot.isReelsViewerActive) {
             if (snapshot.isReelsBottomTabSelected) {
                 igContextState = IgNavigationContext.OTHER_SCREEN
                 triggerBlockAction(PKG_INSTAGRAM, "Instagram Reels Tab", "Reels-Tab blockiert!")
                 return
             }
-            
             if (currentPrefs.igAllowSingleReelFromDm) {
                 val cameFromDmRecently = (igContextState == IgNavigationContext.DIRECT_THREAD_OR_INBOX) || (now - lastDmContextSeenTimestamp < DM_CONTEXT_EXPIRY_MS)
                 if (cameFromDmRecently && igContextState != IgNavigationContext.ALLOWED_SINGLE_DM_REEL) {
@@ -115,11 +99,9 @@ class FocusAccessibilityService : AccessibilityService() {
                     return
                 }
             }
-            
             triggerBlockAction(PKG_INSTAGRAM, "Instagram Reels Player", "Reel geschlossen!")
             return
         }
-        
         if (!snapshot.isInDirectMessages && !snapshot.isReelsViewerActive) {
             if (igContextState == IgNavigationContext.ALLOWED_SINGLE_DM_REEL) {
                 igContextState = IgNavigationContext.DIRECT_THREAD_OR_INBOX
@@ -153,75 +135,33 @@ class FocusAccessibilityService : AccessibilityService() {
     
     private fun scanInstagramTree(root: AccessibilityNodeInfo): InstagramTreeSnapshot {
         val snapshot = InstagramTreeSnapshot()
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        var nodesVisited = 0
-        
+        val queue = ArrayDeque<AccessibilityNodeInfo>(); queue.add(root); var nodesVisited = 0
         while (queue.isNotEmpty() && nodesVisited < 400) {
-            val node = queue.removeFirst()
-            nodesVisited++
-            
-            val viewId = node.viewIdResourceName.orEmpty()
-            val contentDesc = node.contentDescription?.toString().orEmpty()
-            val text = node.text?.toString().orEmpty()
-            val className = node.className?.toString().orEmpty()
-            
+            val node = queue.removeFirst(); nodesVisited++
+            val viewId = node.viewIdResourceName.orEmpty(); val contentDesc = node.contentDescription?.toString().orEmpty(); val text = node.text?.toString().orEmpty(); val className = node.className?.toString().orEmpty()
             if (node.isVisibleToUser) {
-                if (viewId.contains("row_thread_composer", true) || viewId.contains("direct_thread", true) || viewId.contains("thread_list", true) || viewId.contains("direct_inbox", true) || contentDesc.equals("Nachricht senden", true) || contentDesc.equals("Message…", true) || text.equals("Nachricht…", true)) {
-                    snapshot.isInDirectMessages = true
-                }
-                
-                if (viewId.contains("clips_viewer_view_pager", true) || viewId.contains("clips_viewer_root", true) || viewId.contains("reel_viewer_root", true) || viewId.contains("clips_video_container", true)) {
-                    snapshot.isReelsViewerActive = true
-                }
-                
-                if ((viewId.contains("clips_tab", true) || contentDesc.equals("Reels", true)) && node.isSelected) { 
-                    snapshot.isReelsBottomTabSelected = true
-                    snapshot.isReelsViewerActive = true 
-                }
-                
-                if (snapshot.currentReelSignature == null && (viewId.contains("clips_author_username", true) || viewId.contains("clips_caption", true)) && text.isNotBlank()) {
-                    snapshot.currentReelSignature = text.take(40)
-                }
-                
-                if (viewId.contains("explore_grid", true) || viewId.contains("search_ighv_recyclerview", true) || (viewId.contains("search_tab", true) && node.isSelected)) {
-                    snapshot.isExploreGridActive = true
-                }
-                
-                if (className.contains("EditText", true) && node.isFocused) {
-                    snapshot.isSearchInputFocused = true
-                }
+                if (viewId.contains("row_thread_composer", true) || viewId.contains("direct_thread", true) || viewId.contains("thread_list", true) || viewId.contains("direct_inbox", true) || contentDesc.equals("Nachricht senden", true) || contentDesc.equals("Message…", true) || text.equals("Nachricht…", true)) snapshot.isInDirectMessages = true
+                if (viewId.contains("clips_viewer_view_pager", true) || viewId.contains("clips_viewer_root", true) || viewId.contains("reel_viewer_root", true) || viewId.contains("clips_video_container", true)) snapshot.isReelsViewerActive = true
+                if ((viewId.contains("clips_tab", true) || contentDesc.equals("Reels", true)) && node.isSelected) { snapshot.isReelsBottomTabSelected = true; snapshot.isReelsViewerActive = true }
+                if (snapshot.currentReelSignature == null && (viewId.contains("clips_author_username", true) || viewId.contains("clips_caption", true)) && text.isNotBlank()) snapshot.currentReelSignature = text.take(40)
+                if (viewId.contains("explore_grid", true) || viewId.contains("search_ighv_recyclerview", true) || (viewId.contains("search_tab", true) && node.isSelected)) snapshot.isExploreGridActive = true
+                if (className.contains("EditText", true) && node.isFocused) snapshot.isSearchInputFocused = true
             }
-            
-            for (i in 0 until node.childCount) { 
-                node.getChild(i)?.let { queue.add(it) } 
-            }
+            for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
         return snapshot
     }
 
     private fun inspectYouTube(rootNode: AccessibilityNodeInfo, now: Long) {
         if (!currentPrefs.ytBlockShorts) return
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(rootNode)
-        var nodesVisited = 0
-        
+        val queue = ArrayDeque<AccessibilityNodeInfo>(); queue.add(rootNode); var nodesVisited = 0
         while (queue.isNotEmpty() && nodesVisited < 300) {
-            val node = queue.removeFirst()
-            nodesVisited++
-            
-            val viewId = node.viewIdResourceName.orEmpty()
-            val contentDesc = node.contentDescription?.toString().orEmpty()
-            val text = node.text?.toString().orEmpty()
-            
+            val node = queue.removeFirst(); nodesVisited++
+            val viewId = node.viewIdResourceName.orEmpty(); val contentDesc = node.contentDescription?.toString().orEmpty(); val text = node.text?.toString().orEmpty()
             if (node.isVisibleToUser) {
                 val isShortsPlayerView = viewId.contains("reel_recycler", true) || viewId.contains("shorts_player_view", true) || viewId.contains("reel_watch_fragment_root", true) || viewId.contains("reel_player_page_container", true) || viewId.contains("reel_progress_bar", true)
                 val isShortsBottomTabSelected = node.isSelected && (contentDesc.equals("Shorts", true) || text.equals("Shorts", true))
-                
-                if (isShortsPlayerView || isShortsBottomTabSelected) { 
-                    triggerBlockAction(PKG_YOUTUBE, "YouTube Shorts", "Shorts blockiert!")
-                    return 
-                }
+                if (isShortsPlayerView || isShortsBottomTabSelected) { triggerBlockAction(PKG_YOUTUBE, "YouTube Shorts", "Shorts blockiert!"); return }
             }
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
@@ -229,38 +169,20 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private fun inspectTikTok(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent, packageName: String) {
         if (!currentPrefs.ttBlockForYou) return
-        
         var isAllowedScreenActive = false
         var isForYouTabSelected = false
-        
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(rootNode)
-        var nodesVisited = 0
-        
+        val queue = ArrayDeque<AccessibilityNodeInfo>(); queue.add(rootNode); var nodesVisited = 0
         while (queue.isNotEmpty() && nodesVisited < 400) {
-            val node = queue.removeFirst()
-            nodesVisited++
-            
-            val contentDesc = node.contentDescription?.toString().orEmpty()
-            val text = node.text?.toString().orEmpty()
-            
+            val node = queue.removeFirst(); nodesVisited++
+            val contentDesc = node.contentDescription?.toString().orEmpty(); val text = node.text?.toString().orEmpty()
             if (node.isVisibleToUser) {
-                if (text.equals("Posteingang", true) || text.equals("Inbox", true) || 
-                    text.equals("Profil", true) || text.equals("Profile", true) || 
-                    contentDesc.equals("Posteingang", true) || contentDesc.equals("Inbox", true) || 
-                    contentDesc.equals("Profil", true) || contentDesc.equals("Profile", true) ||
-                    text.contains("Nachricht", true)
-                ) {
+                if (text.equals("Posteingang", true) || text.equals("Inbox", true) || text.equals("Profil", true) || text.equals("Profile", true) || contentDesc.equals("Posteingang", true) || contentDesc.equals("Inbox", true) || contentDesc.equals("Profil", true) || contentDesc.equals("Profile", true) || text.contains("Nachricht", true)) {
                     isAllowedScreenActive = true
                 }
-                
-                if (node.isSelected && (text.equals("Für dich", true) || text.equals("For You", true))) {
-                    isForYouTabSelected = true
-                }
+                if (node.isSelected && (text.equals("Für dich", true) || text.equals("For You", true))) isForYouTabSelected = true
             }
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
-        
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             val scrollClass = event.className?.toString().orEmpty()
             if (scrollClass.contains("ViewPager", true) || scrollClass.contains("RecyclerView", true)) {
@@ -270,29 +192,18 @@ class FocusAccessibilityService : AccessibilityService() {
                 }
             }
         }
-        
-        if (isForYouTabSelected && !isAllowedScreenActive) {
-            triggerBlockAction(packageName, "TikTok For-You Tab", "TikTok Feed geschlossen!")
-        }
+        if (isForYouTabSelected && !isAllowedScreenActive) triggerBlockAction(packageName, "TikTok For-You Tab", "TikTok Feed geschlossen!")
     }
 
     private fun triggerBlockAction(packageName: String, reason: String, toastMessage: String) {
         val now = System.currentTimeMillis()
         if (now - lastBlockTimestamp < BLOCK_ACTION_COOLDOWN_MS) return
         lastBlockTimestamp = now
-        
         performGlobalAction(GLOBAL_ACTION_BACK)
         mainHandler.post { Toast.makeText(applicationContext, toastMessage, Toast.LENGTH_SHORT).show() }
-        
-        (applicationContext as? FocusLiteApplication)?.let { app -> 
-            serviceScope.launch(Dispatchers.IO) { app.repository.recordBlockEvent(packageName, reason, now) } 
-        }
+        (applicationContext as? FocusLiteApplication)?.let { app -> serviceScope.launch(Dispatchers.IO) { app.repository.recordBlockEvent(packageName, reason, now) } }
     }
     
     override fun onInterrupt() {}
-    override fun onDestroy() { 
-        isServiceRunning = false
-        serviceScope.cancel()
-        super.onDestroy() 
-    }
+    override fun onDestroy() { isServiceRunning = false; serviceScope.cancel(); super.onDestroy() }
 }

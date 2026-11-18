@@ -4,4 +4,11 @@ import com.focuslite.app.data.local.datastore.*
 import com.focuslite.app.data.local.db.*
 import kotlinx.coroutines.flow.Flow
 import java.util.Calendar
-class FocusRepository(private val prefsManager: FocusPreferencesManager, private val blockEventDao: BlockEventDao) { val preferencesFlow: Flow<FocusPreferences> = prefsManager.preferencesFlow; val totalBlockedFlow: Flow<Int> = blockEventDao.getTotalBlockedCount(); fun getTodayBlockedFlow(): Flow<Int> { val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }; return blockEventDao.getBlockedCountSince(cal.timeInMillis) }; suspend fun setToggle(key: Preferences.Key<Boolean>, enabled: Boolean) = prefsManager.updateBoolean(key, enabled); suspend fun activatePauseForMinutes(minutes: Int) = prefsManager.setPauseUntil(if (minutes <= 0) 0L else System.currentTimeMillis() + (minutes * 60_000L)); suspend fun recordBlockEvent(packageName: String, reason: String, timestamp: Long) = blockEventDao.insertEvent(BlockEventEntity(packageName = packageName, reason = reason, timestamp = timestamp)) }
+class FocusRepository(private val prefsManager: FocusPreferencesManager, private val blockEventDao: BlockEventDao) {
+    val preferencesFlow: Flow<FocusPreferences> = prefsManager.preferencesFlow
+    val totalBlockedFlow: Flow<Int> = blockEventDao.getTotalBlockedCount()
+    fun getTodayBlockedFlow(): Flow<Int> { val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }; return blockEventDao.getBlockedCountSince(cal.timeInMillis) }
+    suspend fun setToggle(key: Preferences.Key<Boolean>, enabled: Boolean) = prefsManager.updateBoolean(key, enabled)
+    suspend fun activatePauseForMinutes(minutes: Int) = prefsManager.setPauseUntil(if (minutes <= 0) 0L else System.currentTimeMillis() + (minutes * 60_000L))
+    suspend fun recordBlockEvent(packageName: String, reason: String, timestamp: Long) = blockEventDao.insertEvent(BlockEventEntity(packageName = packageName, reason = reason, timestamp = timestamp))
+}
