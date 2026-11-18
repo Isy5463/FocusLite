@@ -169,8 +169,10 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private fun inspectTikTok(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent, packageName: String) {
         if (!currentPrefs.ttBlockForYou) return
-        var isAllowedScreenActive = false
-        var isFypActive = false
+        
+        var hasBottomNav = false
+        var isInboxOrProfileSelected = false
+        var isFypExplicitlySelected = false
         
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(rootNode)
@@ -182,42 +184,51 @@ class FocusAccessibilityService : AccessibilityService() {
             
             val contentDesc = node.contentDescription?.toString().orEmpty()
             val text = node.text?.toString().orEmpty()
-            val className = node.className?.toString().orEmpty()
             
             if (node.isVisibleToUser) {
-                // CHAT & POSTEINGANG ERKENNEN
-                // 1. Sicheres Erkennungsmerkmal für DMs/Kommentare: Ein Texteingabefeld
-                if (className.contains("EditText", true)) {
-                    isAllowedScreenActive = true
+                // 1. Prüfen, ob wir uns in der "Haupt-App" befinden (Navigationsleiste unten sichtbar)
+                if (text.equals("Startseite", true) || text.equals("Home", true) || 
+                    text.equals("Posteingang", true) || text.equals("Inbox", true) ||
+                    contentDesc.equals("Startseite", true) || contentDesc.equals("Posteingang", true)) {
+                    hasBottomNav = true
                 }
                 
-                // 2. Erlaubte Tabs und Überschriften
-                if (text.equals("Posteingang", true) || text.equals("Inbox", true) || 
-                    text.equals("Profil", true) || text.equals("Profile", true) || 
-                    text.equals("Freunde", true) || text.equals("Friends", true) || 
-                    contentDesc.equals("Posteingang", true) || contentDesc.equals("Inbox", true)) {
-                    isAllowedScreenActive = true
+                // 2. Prüfen, ob der Posteingang oder das Profil aktiv AUSGEWÄHLT ist
+                if (node.isSelected && (
+                    text.equals("Posteingang", true) || text.equals("Inbox", true) || 
+                    text.equals("Profil", true) || text.equals("Profile", true) ||
+                    contentDesc.equals("Posteingang", true) || contentDesc.equals("Inbox", true) ||
+                    contentDesc.equals("Profil", true) || contentDesc.equals("Profile", true)
+                )) {
+                    isInboxOrProfileSelected = true
                 }
                 
-                // FYP ERKENNEN (Oft oben im Header fixiert)
-                if (text.equals("Für dich", true) || text.equals("For You", true) || text.equals("Startseite", true)) {
-                    isFypActive = true
+                // 3. Prüfen, ob explizit der "Für dich" Tab oben angewählt ist
+                if (node.isSelected && (text.equals("Für dich", true) || text.equals("For You", true))) {
+                    isFypExplicitlySelected = true
                 }
             }
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
         
-        // AKTION 1: Scroll-Block (greift bei jedem Wischen, wenn wir nicht im Chat sind)
+        // SCROLL-LOGIK
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-            if (!isAllowedScreenActive) {
-                triggerBlockAction(packageName, "TikTok Feed Scroll", "Scrollen im TikTok-Feed blockiert!")
+            
+            // FALL A: Wir sind im Hauptmenü, aber NICHT im Posteingang -> Block (Fängt Startseite ab)
+            if (hasBottomNav && !isInboxOrProfileSelected) {
+                triggerBlockAction(packageName, "TikTok Feed", "Haupt-Feed blockiert!")
                 return
             }
-        }
-        
-        // AKTION 2: FYP View-Block (Kickt dich sofort raus, wenn die FYP erkannt wird)
-        if (isFypActive && !isAllowedScreenActive) {
-            triggerBlockAction(packageName, "TikTok For-You Tab", "TikTok Feed geschlossen!")
+            
+            // FALL B: Der "Für dich" Tab ist explizit markiert -> Block
+            if (isFypExplicitlySelected) {
+                triggerBlockAction(packageName, "TikTok FYP", "Für Dich Feed blockiert!")
+                return
+            }
+            
+            // FALL C: Es gibt keine Navi-Leiste und "Für dich" ist nicht markiert.
+            // Das bedeutet, du schaust ein Video im Vollbild, das dir geschickt wurde!
+            // -> HIER ERLAUBEN WIR DAS SCROLLEN, damit du die Videos deiner Freunde sehen kannst.
         }
     }
 
