@@ -46,38 +46,43 @@ class FocusAccessibilityService : AccessibilityService() {
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
-        val packageName = event.packageName?.toString() ?: return
-        val now = System.currentTimeMillis()
-        
-        if (currentPrefs.pauseUntilTimestamp > now) return
-        
-        // TikTok (inklusive aller Pro/Mod Versionen wie Aweme) erkennen
-        val isTikTok = packageName.contains("tiktok", true) || 
-                       packageName.contains("zhiliao", true) || 
-                       packageName.contains("aweme", true) || 
-                       packageName.contains("trill", true)
-        
-        if (packageName == PKG_INSTAGRAM && event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && igContextState == IgNavigationContext.ALLOWED_SINGLE_DM_REEL) {
-            handleInstagramDmReelScroll(event, now)
-            return
-        }
-        
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-            if (now - lastTreeScanTimestamp < SCAN_DEBOUNCE_MS) return
-        }
-        lastTreeScanTimestamp = now
-        val rootNode = rootInActiveWindow ?: return
+override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+    if (event == null) return
+    val packageName = event.packageName?.toString() ?: return
+    val now = System.currentTimeMillis()
 
-        try {
-            if (packageName == PKG_INSTAGRAM) inspectInstagram(rootNode, now)
-            else if (packageName == PKG_YOUTUBE) inspectYouTube(rootNode, now)
-            else if (isTikTok) inspectTikTok(rootNode, event, packageName)
-        } catch (e: Exception) { 
-            Log.e("FocusLite", "Error scanning UI", e) 
-        }
+    if (currentPrefs.pauseUntilTimestamp > now) return
+
+    // 1. TikTok Pro / Mod Erkennung (fängt alles mit "tiktok", "aweme", "zhiliao" etc. ab)
+    val isTikTok = packageName.contains("tiktok", true) || 
+                   packageName.contains("zhiliao", true) || 
+                   packageName.contains("aweme", true) || 
+                   packageName.contains("trill", true)
+
+    // 2. AKKU-SCHUTZ: Ignoriere alle irrelevanten Apps (WhatsApp, Browser etc.) sofort
+    val isTargetApp = packageName == PKG_INSTAGRAM || packageName == PKG_YOUTUBE || isTikTok
+    if (!isTargetApp) return
+
+    // 3. Spezielle Instagram-Scroll-Regel für DMs
+    if (packageName == PKG_INSTAGRAM && event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && igContextState == IgNavigationContext.ALLOWED_SINGLE_DM_REEL) {
+        handleInstagramDmReelScroll(event, now)
+        return
     }
+
+    if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+        if (now - lastTreeScanTimestamp < SCAN_DEBOUNCE_MS) return
+    }
+    lastTreeScanTimestamp = now
+    val rootNode = rootInActiveWindow ?: return
+
+    try {
+        if (packageName == PKG_INSTAGRAM) inspectInstagram(rootNode, now)
+        else if (packageName == PKG_YOUTUBE) inspectYouTube(rootNode, now)
+        else if (isTikTok) inspectTikTok(rootNode, event, packageName)
+    } catch (e: Exception) { 
+        Log.e("FocusLite", "Error scanning UI", e) 
+    }
+}
 
     private fun inspectInstagram(rootNode: AccessibilityNodeInfo, now: Long) {
         val snapshot = scanInstagramTree(rootNode)
