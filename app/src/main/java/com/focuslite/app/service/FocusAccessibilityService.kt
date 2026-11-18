@@ -170,29 +170,55 @@ class FocusAccessibilityService : AccessibilityService() {
     private fun inspectTikTok(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent, packageName: String) {
         if (!currentPrefs.ttBlockForYou) return
         var isAllowedScreenActive = false
-        var isForYouTabSelected = false
-        val queue = ArrayDeque<AccessibilityNodeInfo>(); queue.add(rootNode); var nodesVisited = 0
+        var isFypActive = false
+        
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(rootNode)
+        var nodesVisited = 0
+        
         while (queue.isNotEmpty() && nodesVisited < 400) {
-            val node = queue.removeFirst(); nodesVisited++
-            val contentDesc = node.contentDescription?.toString().orEmpty(); val text = node.text?.toString().orEmpty()
+            val node = queue.removeFirst()
+            nodesVisited++
+            
+            val contentDesc = node.contentDescription?.toString().orEmpty()
+            val text = node.text?.toString().orEmpty()
+            val className = node.className?.toString().orEmpty()
+            
             if (node.isVisibleToUser) {
-                if (text.equals("Posteingang", true) || text.equals("Inbox", true) || text.equals("Profil", true) || text.equals("Profile", true) || contentDesc.equals("Posteingang", true) || contentDesc.equals("Inbox", true) || contentDesc.equals("Profil", true) || contentDesc.equals("Profile", true) || text.contains("Nachricht", true)) {
+                // CHAT & POSTEINGANG ERKENNEN
+                // 1. Sicheres Erkennungsmerkmal für DMs/Kommentare: Ein Texteingabefeld
+                if (className.contains("EditText", true)) {
                     isAllowedScreenActive = true
                 }
-                if (node.isSelected && (text.equals("Für dich", true) || text.equals("For You", true))) isForYouTabSelected = true
+                
+                // 2. Erlaubte Tabs und Überschriften
+                if (text.equals("Posteingang", true) || text.equals("Inbox", true) || 
+                    text.equals("Profil", true) || text.equals("Profile", true) || 
+                    text.equals("Freunde", true) || text.equals("Friends", true) || 
+                    contentDesc.equals("Posteingang", true) || contentDesc.equals("Inbox", true)) {
+                    isAllowedScreenActive = true
+                }
+                
+                // FYP ERKENNEN (Oft oben im Header fixiert)
+                if (text.equals("Für dich", true) || text.equals("For You", true) || text.equals("Startseite", true)) {
+                    isFypActive = true
+                }
             }
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
+        
+        // AKTION 1: Scroll-Block (greift bei jedem Wischen, wenn wir nicht im Chat sind)
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-            val scrollClass = event.className?.toString().orEmpty()
-            if (scrollClass.contains("ViewPager", true) || scrollClass.contains("RecyclerView", true)) {
-                if (!isAllowedScreenActive) {
-                    triggerBlockAction(packageName, "TikTok Feed Scroll", "Scrollen im TikTok-Feed blockiert!")
-                    return
-                }
+            if (!isAllowedScreenActive) {
+                triggerBlockAction(packageName, "TikTok Feed Scroll", "Scrollen im TikTok-Feed blockiert!")
+                return
             }
         }
-        if (isForYouTabSelected && !isAllowedScreenActive) triggerBlockAction(packageName, "TikTok For-You Tab", "TikTok Feed geschlossen!")
+        
+        // AKTION 2: FYP View-Block (Kickt dich sofort raus, wenn die FYP erkannt wird)
+        if (isFypActive && !isAllowedScreenActive) {
+            triggerBlockAction(packageName, "TikTok For-You Tab", "TikTok Feed geschlossen!")
+        }
     }
 
     private fun triggerBlockAction(packageName: String, reason: String, toastMessage: String) {
