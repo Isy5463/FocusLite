@@ -1,5 +1,1 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">FocusLite</string>
-    <string name="accessibility_service_description">FocusLite erkennt Kurzvideo-Feeds (Reels, Shorts, TikTok) und schützt dich vor endlosem Doomscrolling, während deine Chats und Abos nutzbar bleiben. Es werden keinerlei persönliche Nachrichten oder Passwörter gespeichert oder übertragen.</string>
-</resources>
+<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">FocusLite</string><string name="accessibility_service_description">FocusLite erkennt Kurzvideo-Feeds (Reels, Shorts, TikTok) und schützt dich vor endlosem Doomscrolling, während deine Chats und Abos nutzbar bleiben.</string></resources>
