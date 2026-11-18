@@ -141,7 +141,10 @@ class FocusAccessibilityService : AccessibilityService() {
             val viewId = node.viewIdResourceName.orEmpty(); val contentDesc = node.contentDescription?.toString().orEmpty(); val text = node.text?.toString().orEmpty(); val className = node.className?.toString().orEmpty()
             if (node.isVisibleToUser) {
                 if (viewId.contains("row_thread_composer", true) || viewId.contains("direct_thread", true) || viewId.contains("thread_list", true) || viewId.contains("direct_inbox", true) || contentDesc.equals("Nachricht senden", true) || contentDesc.equals("Message…", true) || text.equals("Nachricht…", true)) snapshot.isInDirectMessages = true
-                if (viewId.contains("clips_viewer_view_pager", true) || viewId.contains("clips_viewer_root", true) || viewId.contains("reel_viewer_root", true) || viewId.contains("clips_video_container", true)) snapshot.isReelsViewerActive = true
+                
+                // FIX: "reel_viewer_root" entfernt. Instagram nennt Stories intern "reels" und echte Reels "clips".
+                if (viewId.contains("clips_viewer_view_pager", true) || viewId.contains("clips_viewer_root", true) || viewId.contains("clips_video_container", true)) snapshot.isReelsViewerActive = true
+                
                 if ((viewId.contains("clips_tab", true) || contentDesc.equals("Reels", true)) && node.isSelected) { snapshot.isReelsBottomTabSelected = true; snapshot.isReelsViewerActive = true }
                 if (snapshot.currentReelSignature == null && (viewId.contains("clips_author_username", true) || viewId.contains("clips_caption", true)) && text.isNotBlank()) snapshot.currentReelSignature = text.take(40)
                 if (viewId.contains("explore_grid", true) || viewId.contains("search_ighv_recyclerview", true) || (viewId.contains("search_tab", true) && node.isSelected)) snapshot.isExploreGridActive = true
@@ -186,14 +189,12 @@ class FocusAccessibilityService : AccessibilityService() {
             val text = node.text?.toString().orEmpty()
             
             if (node.isVisibleToUser) {
-                // 1. Prüfen, ob wir uns in der "Haupt-App" befinden (Navigationsleiste unten sichtbar)
                 if (text.equals("Startseite", true) || text.equals("Home", true) || 
                     text.equals("Posteingang", true) || text.equals("Inbox", true) ||
                     contentDesc.equals("Startseite", true) || contentDesc.equals("Posteingang", true)) {
                     hasBottomNav = true
                 }
                 
-                // 2. Prüfen, ob der Posteingang oder das Profil aktiv AUSGEWÄHLT ist
                 if (node.isSelected && (
                     text.equals("Posteingang", true) || text.equals("Inbox", true) || 
                     text.equals("Profil", true) || text.equals("Profile", true) ||
@@ -203,7 +204,6 @@ class FocusAccessibilityService : AccessibilityService() {
                     isInboxOrProfileSelected = true
                 }
                 
-                // 3. Prüfen, ob explizit der "Für dich" Tab oben angewählt ist
                 if (node.isSelected && (text.equals("Für dich", true) || text.equals("For You", true))) {
                     isFypExplicitlySelected = true
                 }
@@ -211,24 +211,15 @@ class FocusAccessibilityService : AccessibilityService() {
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
         
-        // SCROLL-LOGIK
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-            
-            // FALL A: Wir sind im Hauptmenü, aber NICHT im Posteingang -> Block (Fängt Startseite ab)
             if (hasBottomNav && !isInboxOrProfileSelected) {
                 triggerBlockAction(packageName, "TikTok Feed", "Haupt-Feed blockiert!")
                 return
             }
-            
-            // FALL B: Der "Für dich" Tab ist explizit markiert -> Block
             if (isFypExplicitlySelected) {
                 triggerBlockAction(packageName, "TikTok FYP", "Für Dich Feed blockiert!")
                 return
             }
-            
-            // FALL C: Es gibt keine Navi-Leiste und "Für dich" ist nicht markiert.
-            // Das bedeutet, du schaust ein Video im Vollbild, das dir geschickt wurde!
-            // -> HIER ERLAUBEN WIR DAS SCROLLEN, damit du die Videos deiner Freunde sehen kannst.
         }
     }
 
